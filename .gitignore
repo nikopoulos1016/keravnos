@@ -1,0 +1,13 @@
+# visual studio code congfig files
+.vscode
+
+# binary files
+/bin
+
+# batch files
+*.bat
+
+# testbed files
+/testbed/lkeravnos/__pycache__
+/testbed/lkeravnos/lib
+/testbed/lkeravnos/*.pyd
