@@ -81,7 +81,7 @@ __global__ void _selfattn_compute_attention(
     float attn_val_ = attn_tile_[row_idx_ * block_size_ + col_idx_];
     float row_max_ = attn_val_;
     for (int offset_ = block_size_ >> 1; offset_ > 0; offset_ >>= 1) {
-	    float other_ = __shfl_xor_sync(UINT32_MAX, row_max_, offset_);
+	    float other_ = __shfl_down_sync(UINT32_MAX, row_max_, offset_);
 	    row_max_ = fmaxf(row_max_, other_);
     }
 
@@ -91,7 +91,7 @@ __global__ void _selfattn_compute_attention(
     // sum reduction
     float row_sum_ = attn_val_;
     for (int offset_ = block_size_ >> 1; offset_ > 0; offset_ >>= 1) {
-	    float other_ = __shfl_xor_sync(UINT32_MAX, row_sum_, offset_);
+	    float other_ = __shfl_down_sync(UINT32_MAX, row_sum_, offset_);
 	    row_sum_ += other_;
     }
 
