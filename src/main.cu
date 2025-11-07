@@ -1,6 +1,7 @@
-#include "memory/memory.cuh"
 #include "utils/device.cuh"
-#include "transformer/transformer.cuh"
+#include "core/memory.cuh"
+#include "core/transformer.cuh"
+
 
 Transformer *current_transformer = nullptr;
 std::unordered_map<std::string, Transformer *> transformer_registry;
@@ -125,16 +126,6 @@ void keravnos_edit_tensor(const std::string name, const std::string tensor_id, c
 
     memory_device_deallocate(dvc_input_, verbose);
     if (verbose) KERAVNOS_PRINT("edit completed for tensor id '", tensor_id, "' of transformer '", name, "'.");
-}
-
-void keravnos_causal_self_attention(const std::string name, const bool bias, const float dropout, const bool verbose) {
-    if (transformer_registry.find(name) == transformer_registry.end()) {
-        if (verbose) KERAVNOS_PRINT_ERROR("transformer '", name, "' does not exist.");
-        return;
-    }
-
-    Transformer *tr_ = transformer_registry[name];
-    transformer_causal_self_attention(tr_, bias, dropout, verbose);
 }
 
 py::dict keravnos_get_transformer_info(const std::string name, const bool verbose) {
@@ -345,15 +336,6 @@ PYBIND11_MODULE(keravnos, m) {
         py::arg("name"),
         py::arg("tensor_id"),
         py::arg("input"),
-        py::arg("verbose") = false
-    );
-
-    m.def(
-        "causal_self_attention",
-        &keravnos_causal_self_attention,
-        py::arg("name"),
-        py::arg("use_bias") = true,
-        py::arg("dropout") = 0.5f,
         py::arg("verbose") = false
     );
 

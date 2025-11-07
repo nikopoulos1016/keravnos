@@ -1,5 +1,5 @@
-#include "neural_network/embedding.cuh"
-#include "transformer/transformer.cuh"
+#include "core/transformer.cuh"
+#include "core/embedding.cuh"
 
 __global__ void _embedding_input_vector(
     __half *out,

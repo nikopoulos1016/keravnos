@@ -1,9 +1,9 @@
-#include "transformer/transformer.cuh"
-#include "neural_network/layer_norm.cuh"
+#include "blocks/layer_norm.cuh"
 
 
 __global__ void _layer_norm(
-    __half *input_embed,
+    __half *output,
+    const __half *input,
     const __half *ln_params,
     const int layer_idx,
     const int seq_len,
@@ -19,8 +19,6 @@ __global__ void _layer_norm(
     int d_idx_ = w_idx_ * block_size_ + l_idx_;
     
     int n_lanes_ = blockDim.x;
-    int n_warps_ = blockDim.y;
-    int stride_ = n_dims;
     int ln_param_size_ = 4 * n_dims;
     int valid_ = (d_idx_ < n_dims);
 
@@ -33,7 +31,7 @@ __global__ void _layer_norm(
     
     // ----------------- load input ----------------- //
     
-    float val_ = valid_ ? __half2float(input_embed[offset_x_ + d_idx_]) : 0.0f;
+    float val_ = valid_ ? __half2float(input[offset_x_ + d_idx_]) : 0.0f;
 
     // ----------------- compute mean ----------------- //
 
@@ -44,7 +42,7 @@ __global__ void _layer_norm(
     }
     if (l_idx_ == 0) {
         int warp_start_ = w_idx_ * block_size_;
-        int warp_width_ = std::min(block_size_, n_dims - warp_start_);
+        int warp_width_ = min(block_size_, n_dims - warp_start_);
         warp_buf_[w_idx_] = warpwise_sum_ * (1.0f / warp_width_);
     }
     __syncthreads();
@@ -75,7 +73,7 @@ __global__ void _layer_norm(
     }
     if (l_idx_ == 0) {
         int warp_start_ = w_idx_ * block_size_;
-        int warp_width_ = std::min(block_size_, n_dims - warp_start_);
+        int warp_width_ = min(block_size_, n_dims - warp_start_);
         warp_buf_[w_idx_] = warpwise_var_ * (1.0f / warp_width_);
     }
     __syncthreads();
@@ -103,7 +101,7 @@ __global__ void _layer_norm(
         float beta_ = __half2float(ln_params[offset_beta_ + d_idx_]);
 
         float norm_ = gamma_ * ((val_ - mean_) * std_) + beta_;
-        input_embed[offset_x_ + d_idx_] = __float2half(norm_); 
+        output[offset_x_ + d_idx_] = __float2half(norm_); 
     }
 }
 
@@ -113,7 +111,8 @@ extern "C" {
 #endif
 
 void layer_norm(
-    __half *input_embed,
+    __half *output,
+    const __half *input,
     const __half *ln_params,
     const int layer_index,
     const int batch_size,
@@ -128,7 +127,7 @@ void layer_norm(
     std::size_t shared_mem_ = n_warps_ * sizeof(float);
 
     _layer_norm<<<blocks_, threads_, shared_mem_>>>(
-        input_embed, ln_params, 
+        output, input, ln_params, 
         layer_index, sequence_length, num_dims, 
         epsilon
     );

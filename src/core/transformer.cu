@@ -1,9 +1,10 @@
-#include "memory/memory.cuh"
 #include "utils/device.cuh"
-#include "neural_network/embedding.cuh"
+#include "blocks/layer_norm.cuh"
 #include "blocks/self_attention.cuh"
-#include "transformer/transformer.cuh"
-
+#include "blocks/residual.cuh"
+#include "core/memory.cuh"
+#include "core/embedding.cuh"
+#include "core/transformer.cuh"
 
 void transformer_allocate_device_memory(
   Transformer *transformer,
@@ -304,7 +305,7 @@ void transformer_edit_output_projection_bias(Transformer *transformer, const std
     CUDA_CHECK(cudaDeviceSynchronize(), verbose);
 }
 
-void transformer_causal_self_attention(Transformer *transformer, const bool bias, const float dropout, const bool verbose) {
+void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_handle, const bool bias, const float dropout, const bool verbose) {
     if (!transformer) {
         if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
         return;  
@@ -321,6 +322,9 @@ void transformer_causal_self_attention(Transformer *transformer, const bool bias
     __half *dvc_out_proj_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_out_proj);
     __half *dvc_out_proj_bias_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_out_proj_bias);
     __half *dvc_output_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_output);
+    __half *dvc_ln_params_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ln_params);
+    __half *dvc_ln1_out_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ln1_out);
+    __half *dvc_ln2_out_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ln2_out);
 
     const int head_dim_ = header_._num_dims / header_._num_heads;
     const float scale_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
@@ -329,22 +333,28 @@ void transformer_causal_self_attention(Transformer *transformer, const bool bias
     const __half *dvc_k_matrix_ = dvc_q_matrix_ + qkv_stride_;
     const __half *dvc_v_matrix_ = dvc_k_matrix_ + qkv_stride_;
 
-    cublasHandle_t handle_;
-    cublasStatus_t stat_ = cublasCreate(&handle_);
-    if (stat_ != CUBLAS_STATUS_SUCCESS) {
-		if (verbose) KERAVNOS_PRINT_ERROR("failed to create CUBLAS.");
-		throw std::runtime_error("transformer_causal_self_attention failed - failed to create CUBLAS.");
-	}
+    // ------------------- layer normalisation ------------------- //
+    
+    layer_norm(
+        dvc_input_embed_, dvc_input_embed_, dvc_ln_params_,
+        header_._current_layer_index, header_._batch_size, header_._sequence_length, header_._num_dims    
+    );
 
-    // perform QKV projection
+    // checkpoint
+    memory_copy_device_to_device(dvc_ln1_out_, dvc_input_embed_, header_._batch_size * header_._sequence_length * header_._num_dims * sizeof(__half), verbose);
+     
+    // ------------------- QKV projection ------------------- //
+    
     selfattn_compute_qkv_projection(
         dvc_qkv_matrix_,
-        handle_,
+        cublas_handle,
         dvc_input_embed_, dvc_qkv_proj_, dvc_qkv_proj_bias_,
         header_._num_dims, header_._batch_size, header_._sequence_length,
         bias
     );
 
+    // ------------------- self-attention ------------------- //
+    
     selfattn_compute_attention(
         dvc_attn_scores_, dvc_context_layer_,
         dvc_dropout_mask_, dvc_q_matrix_, dvc_k_matrix_, dvc_v_matrix_,
@@ -352,25 +362,51 @@ void transformer_causal_self_attention(Transformer *transformer, const bool bias
         head_dim_, 
         scale_, 
         true, // causal masking enabled
-        0.0f // dropout
+        dropout
     );
 
-    // compute output projection
+    // ------------------- output projection ------------------- //
+    
     selfattn_compute_output_projection(
         dvc_output_,
-        handle_,
+        cublas_handle,
         dvc_context_layer_, dvc_out_proj_, dvc_out_proj_bias_,
         header_._batch_size, header_._sequence_length, header_._num_dims, head_dim_, header_._num_heads,
         bias
     );
 
-    stat_ = cublasDestroy(handle_);
-    if (stat_ != CUBLAS_STATUS_SUCCESS) {
-		if (verbose) KERAVNOS_PRINT_ERROR("failed to destroy CUBLAS.");
-		throw std::runtime_error("transformer_causal_self_attention failed - failed to destroy CUBLAS.");
-	}
+    // residual add
+    residual_add(
+        dvc_input_embed_, dvc_input_embed_, dvc_output_,
+        header_._batch_size, header_._sequence_length, header_._num_dims
+    );
+    
+    // ------------------- layer normalisation ------------------- //
+    
+    layer_norm(
+        dvc_input_embed_, dvc_input_embed_, dvc_ln_params_,
+        header_._current_layer_index, header_._batch_size, header_._sequence_length, header_._num_dims    
+    );
+
+    // checkpoint
+    memory_copy_device_to_device(dvc_ln2_out_, dvc_input_embed_, header_._batch_size * header_._sequence_length * header_._num_dims * sizeof(__half), verbose);
+
+    // ------------------- feed forward ------------------- //
+    
+    // residual add
 }
- 
+
+void transformer_forward(Transformer *transformer, const bool verbose) {
+    if (!transformer) {
+        if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
+        return;  
+    }
+
+    const TransformerHeader &header_ = transformer_get_header(transformer, verbose);
+
+
+}
+
 TransformerHeader transformer_get_header(Transformer *transformer, const bool verbose) {
     TransformerHeader hst_header_ = {};    
     

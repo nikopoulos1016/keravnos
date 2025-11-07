@@ -1,4 +1,4 @@
-#include "memory/memory.cuh"
+#include "core/memory.cuh"
 
 void *memory_device_allocate(const std::size_t size, const bool verbose) {
     void *ptr_ = nullptr;

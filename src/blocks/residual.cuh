@@ -6,17 +6,18 @@
 extern "C" {
 #endif
 
-void layer_norm(    
-    __half *input_embed,
-    const __half *ln_params,
-    const int layer_index,
+void residual_add(    
+    __half *output,
+    const __half *input,
+    const __half *skip,
     const int batch_size,
     const int sequence_length,
-    const int num_dims,
-    const float epsilon
+    const int num_dims
 );
 
 #ifdef __cplusplus
 }
 #endif
+
+
 
