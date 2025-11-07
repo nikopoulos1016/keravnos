@@ -6,7 +6,15 @@
 extern "C" {
 #endif
 
-void layer_norm(Transformer *transformer, const bool verbose);
+void layer_norm(    
+    __half *input_embed,
+    const __half *ln_params,
+    const int layer_index,
+    const int batch_size,
+    const int sequence_length,
+    const int num_dims,
+    const float epsilon
+);
 
 #ifdef __cplusplus
 }

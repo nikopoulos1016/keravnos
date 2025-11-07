@@ -112,29 +112,25 @@ __global__ void _layer_norm(
 extern "C" {
 #endif
 
-void layer_norm(Transformer *transformer, const bool verbose) {
-    if (!transformer) {
-        if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
-        return;  
-    } 
-    
-    const TransformerHeader &header_ = transformer_get_header(transformer, verbose);
-    __half *dvc_input_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_input_embed);
-    __half *dvc_ln_params_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ln_params);
-    
-    std::size_t n_warps_ = (header_._num_dims + TILE_SIZE - 1) / TILE_SIZE;
+void layer_norm(
+    __half *input_embed,
+    const __half *ln_params,
+    const int layer_index,
+    const int batch_size,
+    const int sequence_length,
+    const int num_dims,
+    const float epsilon
+) {
+    std::size_t n_warps_ = (num_dims + TILE_SIZE - 1) / TILE_SIZE;
 
-    dim3 blocks_(header_._sequence_length, header_._batch_size);
+    dim3 blocks_(sequence_length, batch_size);
     dim3 threads_(TILE_SIZE, n_warps_);
     std::size_t shared_mem_ = n_warps_ * sizeof(float);
 
     _layer_norm<<<blocks_, threads_, shared_mem_>>>(
-        dvc_input_embed_, 
-        dvc_ln_params_, 
-        header_._current_layer_index, 
-        header_._sequence_length, 
-        header_._num_dims,
-        EPSILON
+        input_embed, ln_params, 
+        layer_index, sequence_length, num_dims, 
+        epsilon
     );
 }
 

@@ -33,24 +33,22 @@ __global__ void _embedding_input_vector(
 extern "C" {
 #endif
 
-void embedding_input_vector(Transformer *transformer, const bool verbose) {
-    if (!transformer) {
-        if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
-        return;  
-    } 
-    
-    const TransformerHeader &header_ = transformer_get_header(transformer, verbose);
-    __half *input_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_input_embed);
-    int *token_ids_ = reinterpret_cast<int *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_token_ids);
-    __half *token_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_token_embed);
-    __half *pos_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_pos_embed);
-
-    dim3 blocks_(header_._batch_size, header_._sequence_length);
-    dim3 threads_(header_._num_dims);
+void embedding_input_vector(
+    __half *input_embed,
+    const int *token_ids,
+    const __half *token_embed,
+    const __half *pos_embed,
+    const int batch_size,
+    const int vocab_size,
+    const int num_dims,
+    const int sequence_length
+) {
+    dim3 blocks_(batch_size, sequence_length);
+    dim3 threads_(num_dims);
 
     _embedding_input_vector<<<blocks_, threads_>>>(
-        input_embed_, token_ids_, token_embed_, pos_embed_,
-        header_._vocab_size, header_._num_dims, header_._sequence_length
+        input_embed, token_ids, token_embed, pos_embed,
+        vocab_size, num_dims, sequence_length
     );
 }
 

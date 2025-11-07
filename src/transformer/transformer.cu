@@ -147,6 +147,11 @@ void transformer_feed_token_ids(Transformer *transformer, const py::array_t<int,
     } 
     
     const TransformerHeader &header_ = transformer_get_header(transformer, verbose);
+    __half *input_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_input_embed);
+    int *token_ids_ = reinterpret_cast<int *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_token_ids);
+    __half *token_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_token_embed);
+    __half *pos_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_pos_embed);
+
     
     py::buffer_info buf_ = token_ids.request();
     if (buf_.ndim != 2) {
@@ -154,7 +159,7 @@ void transformer_feed_token_ids(Transformer *transformer, const py::array_t<int,
         return;
     }
     if (buf_.shape[0] != header_._batch_size || buf_.shape[1] != header_._sequence_length) {
-        if (verbose) KERAVNOS_PRINT_ERROR("token_ids shape mismatched: expected ", header_._batch_size, " x ", header_._sequence_length);
+        if (verbose) KERAVNOS_PRINT_ERROR("token_ids shape mismatched: expected [", header_._batch_size, ", ", header_._sequence_length, "]");
         return;
     }
 
@@ -166,7 +171,10 @@ void transformer_feed_token_ids(Transformer *transformer, const py::array_t<int,
     
     if (verbose) KERAVNOS_PRINT("finished feeding token ids into transformer.");
     
-    embedding_input_vector(transformer, verbose);
+    embedding_input_vector(
+        input_embed_, token_ids_, token_embed_, pos_embed_, 
+        header_._batch_size, header_._vocab_size, header_._num_dims, header_._sequence_length
+    );
     if (verbose) KERAVNOS_PRINT("transformer input vector embedding completed.");
 }
 
