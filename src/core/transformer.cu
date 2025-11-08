@@ -2,6 +2,7 @@
 #include "blocks/layer_norm.cuh"
 #include "blocks/self_attention.cuh"
 #include "blocks/residual.cuh"
+#include "blocks/feed_forward.cuh"
 #include "core/memory.cuh"
 #include "core/embedding.cuh"
 #include "core/transformer.cuh"
@@ -305,7 +306,7 @@ void transformer_edit_output_projection_bias(Transformer *transformer, const std
     CUDA_CHECK(cudaDeviceSynchronize(), verbose);
 }
 
-void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_handle, const bool bias, const float dropout, const bool verbose) {
+void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_handle, const bool bias, const int ff_multiplier, const float dropout, const bool verbose) {
     if (!transformer) {
         if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
         return;  
@@ -325,6 +326,11 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     __half *dvc_ln_params_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ln_params);
     __half *dvc_ln1_out_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ln1_out);
     __half *dvc_ln2_out_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ln2_out);
+    __half *dvc_ffn_input_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ffn_input);
+    __half *dvc_ffn_hidden_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ffn_hidden);
+    __half *dvc_ffn_output_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ffn_output);
+    __half *dvc_ffn_weights_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ffn_weights);
+    __half *dvc_ffn_biases_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_ffn_bias);
 
     const int head_dim_ = header_._num_dims / header_._num_heads;
     const float scale_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
@@ -341,7 +347,11 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     );
 
     // checkpoint
-    memory_copy_device_to_device(dvc_ln1_out_, dvc_input_embed_, header_._batch_size * header_._sequence_length * header_._num_dims * sizeof(__half), verbose);
+    memory_copy_device_to_device(
+        dvc_ln1_out_, dvc_input_embed_, 
+        header_._batch_size * header_._sequence_length * header_._num_dims * sizeof(__half), 
+        verbose
+    );
      
     // ------------------- QKV projection ------------------- //
     
@@ -389,22 +399,32 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     );
 
     // checkpoint
-    memory_copy_device_to_device(dvc_ln2_out_, dvc_input_embed_, header_._batch_size * header_._sequence_length * header_._num_dims * sizeof(__half), verbose);
+    memory_copy_device_to_device(
+        dvc_ln2_out_, dvc_input_embed_, 
+        header_._batch_size * header_._sequence_length * header_._num_dims * sizeof(__half), 
+        verbose
+    );
+    memory_copy_device_to_device(
+        dvc_ffn_input_, dvc_input_embed_, 
+        header_._batch_size * header_._sequence_length * header_._num_dims * sizeof(__half), 
+        verbose
+    );
 
     // ------------------- feed forward ------------------- //
     
+    feed_forward(
+        dvc_ffn_output_, dvc_ffn_hidden_, 
+        cublas_handle,
+        dvc_ffn_input_, dvc_ffn_weights_, dvc_ffn_biases_,
+        header_._current_layer_index, header_._batch_size, header_._sequence_length, header_._num_dims,
+        ff_multiplier 
+    );
+
     // residual add
-}
-
-void transformer_forward(Transformer *transformer, const bool verbose) {
-    if (!transformer) {
-        if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
-        return;  
-    }
-
-    const TransformerHeader &header_ = transformer_get_header(transformer, verbose);
-
-
+    residual_add(
+        dvc_input_embed_, dvc_input_embed_, dvc_ffn_output_,
+        header_._batch_size, header_._sequence_length, header_._num_dims
+    );
 }
 
 TransformerHeader transformer_get_header(Transformer *transformer, const bool verbose) {

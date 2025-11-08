@@ -15,6 +15,7 @@
 #include <random>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 
 #include <cublasLt.h>
 #include <cublas_v2.h>
@@ -36,6 +37,7 @@ namespace py = pybind11;
 #define FP16_MAX_POS 65504.0f
 #define FP16_MASK_VAL __float2half(-1e9f)
 #define FP32_MASK_VAL -1e9f
+#define FP32_PI 3.1415926535f
 #define PY_PRINT(...) py::print(__VA_ARGS__, py::arg("sep") = "")
 #define BASE_NAME(filepath) std::string(filepath).substr(std::string(filepath).find_last_of("/\\") + 1)
 #define KERAVNOS_PRINT(...) PY_PRINT("> keravnos (", BASE_NAME(__FILE__), ":", __LINE__, ") ", __VA_ARGS__)		
@@ -43,7 +45,8 @@ namespace py = pybind11;
 #define KERAVNOS_PRINT_ERROR(...) PY_PRINT("> keravnos [error] (", BASE_NAME(__FILE__), ":", __LINE__, ") ", __VA_ARGS__)		
 #define KERAVNOS_PRINT_CUDA(...) PY_PRINT("> keravnos [cuda] (", BASE_NAME(__FILE__), ":", __LINE__, ") ", __VA_ARGS__)		
 #define KERAVNOS_PRINT_CUDA_ERROR(...) PY_PRINT("> keravnos [cuda error] (", BASE_NAME(__FILE__), ":", __LINE__, ") ", __VA_ARGS__)		
-#define CUDA_CHECK(call, verbose) do {	\
+#define CUDA_CHECK(call, verbose) \
+	do {	\
     	cudaError_t err_ = (call);	\
     	if (err_ != cudaSuccess) {	\
     	    if (verbose) KERAVNOS_PRINT_CUDA_ERROR(#call, " — ", cudaGetErrorString(err_));	\
@@ -52,6 +55,15 @@ namespace py = pybind11;
 			throw std::runtime_error(oss_.str());	\
 		}	\
 	} while(0)
+#define CUBLAS_CHECK(call)	\
+    do {	\
+        cublasStatus_t status_ = (call);	\
+        if (status_ != CUBLAS_STATUS_SUCCESS) {	\
+            std::ostringstream oss_;	\
+			oss_ << "cuBLAS Error: " << #call << " — " << status_;	\
+			throw std::runtime_error(oss_.str());	\
+        }	\
+    } while (0)
 #define FORMAT_ADDRESS(ptr, as_name)	\
 	std::string as_name;	\
 	do {	\
