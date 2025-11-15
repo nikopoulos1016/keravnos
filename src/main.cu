@@ -43,6 +43,10 @@ void keravnos_construct_transformer(
     // generate bias weights
     transformer_generate_bias_weights(tr_, verbose);
     if (verbose) KERAVNOS_PRINT("transformer '", name, "' generated bias weights.");
+    
+    // construct cuBLAS handle
+    CUBLAS_CHECK(cublasCreate(&tr_->_cublas_handle));
+    if (verbose) KERAVNOS_PRINT("transformer '", name, "' constructed cuBLAS handle.");
 
     // add to registry
     transformer_registry[name] = tr_;
@@ -62,6 +66,9 @@ void keravnos_destruct_transformer(const std::string name, const bool verbose) {
     }
 
     Transformer *tr_ = transformer_registry[name];
+
+    CUBLAS_CHECK(cublasDestroy(tr_->_cublas_handle));
+    if (verbose) KERAVNOS_PRINT("transformer '", name, "' destructed cuBLAS handle.");
 
     transformer_deallocate_device_memory(tr_, verbose);
     if (verbose) KERAVNOS_PRINT("completed device memory deallocation for transformer '", name, "'.");
@@ -126,6 +133,28 @@ void keravnos_edit_tensor(const std::string name, const std::string tensor_id, c
 
     memory_device_deallocate(dvc_input_, verbose);
     if (verbose) KERAVNOS_PRINT("edit completed for tensor id '", tensor_id, "' of transformer '", name, "'.");
+}
+
+void keravnos_layer_forward(const std::string name, const int layer_index, const bool bias, const float dropout, const bool verbose) {
+    if (transformer_registry.find(name) == transformer_registry.end()) {
+        if (verbose) KERAVNOS_PRINT_ERROR("transformer '", name, "' does not exist.");
+        return;
+    }
+
+    Transformer *tr_ = transformer_registry[name];
+    transformer_layer_forward(tr_, layer_index, bias, dropout, verbose);
+}
+
+void keravnos_forward(const std::string name, const bool bias, const float dropout, const bool verbose) {
+    if (transformer_registry.find(name) == transformer_registry.end()) {
+        if (verbose) KERAVNOS_PRINT_ERROR("transformer '", name, "' does not exist.");
+        return;
+    }
+    
+    Transformer *tr_ = transformer_registry[name];
+    transformer_forward(tr_, bias, dropout, verbose);
+
+    if (verbose) KERAVNOS_PRINT("forward pass completed for transformer '", name, "'.");
 }
 
 py::dict keravnos_get_transformer_info(const std::string name, const bool verbose) {
@@ -336,6 +365,25 @@ PYBIND11_MODULE(keravnos, m) {
         py::arg("name"),
         py::arg("tensor_id"),
         py::arg("input"),
+        py::arg("verbose") = false
+    );
+
+    m.def(
+        "layer_forward",
+        &keravnos_layer_forward,
+        py::arg("name"),
+        py::arg("layer_index"),
+        py::arg("bias") = false,
+        py::arg("dropout") = 0.5,
+        py::arg("verbose") = false
+    );
+
+    m.def(
+        "forward",
+        &keravnos_forward,
+        py::arg("name"),
+        py::arg("bias") = false,
+        py::arg("dropout") = 0.5,
         py::arg("verbose") = false
     );
 

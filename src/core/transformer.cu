@@ -34,7 +34,6 @@ void transformer_allocate_device_memory(
     staging_header_._num_layers = num_layers;
     staging_header_._ff_multiplier = ff_mult;
     staging_header_._type_bytes = sizeof(__half);
-    staging_header_._current_layer_index = 0;
 
     const int d_ff_ = num_dims * ff_mult;
     std::size_t offset_ = sizeof(TransformerHeader);
@@ -306,13 +305,16 @@ void transformer_edit_output_projection_bias(Transformer *transformer, const std
     CUDA_CHECK(cudaDeviceSynchronize(), verbose);
 }
 
-void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_handle, const bool bias, const int ff_multiplier, const float dropout, const bool verbose) {
+void transformer_layer_forward(Transformer *transformer, const int layer_index, const bool bias, const float dropout, const bool verbose) {
     if (!transformer) {
         if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
         return;  
     }
 
+    cublasHandle_t &handle_ = transformer->_cublas_handle;
+    
     const TransformerHeader &header_ = transformer_get_header(transformer, verbose);
+    const std::size_t ff_mult_ = header_._ff_multiplier;
     __half *dvc_qkv_matrix_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_qkv_matrix);
     __half *dvc_input_embed_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_input_embed);
     __half *dvc_qkv_proj_ = reinterpret_cast<__half *>(reinterpret_cast<char *>(transformer->_dvc_base) + header_._offset_qkv_proj);
@@ -343,7 +345,7 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     
     layer_norm(
         dvc_input_embed_, dvc_input_embed_, dvc_ln_params_,
-        header_._current_layer_index, header_._batch_size, header_._sequence_length, header_._num_dims    
+        layer_index, header_._batch_size, header_._sequence_length, header_._num_dims    
     );
 
     // checkpoint
@@ -357,7 +359,7 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     
     selfattn_compute_qkv_projection(
         dvc_qkv_matrix_,
-        cublas_handle,
+        handle_,
         dvc_input_embed_, dvc_qkv_proj_, dvc_qkv_proj_bias_,
         header_._num_dims, header_._batch_size, header_._sequence_length,
         bias
@@ -379,7 +381,7 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     
     selfattn_compute_output_projection(
         dvc_output_,
-        cublas_handle,
+        handle_,
         dvc_context_layer_, dvc_out_proj_, dvc_out_proj_bias_,
         header_._batch_size, header_._sequence_length, header_._num_dims, head_dim_, header_._num_heads,
         bias
@@ -395,7 +397,7 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     
     layer_norm(
         dvc_input_embed_, dvc_input_embed_, dvc_ln_params_,
-        header_._current_layer_index, header_._batch_size, header_._sequence_length, header_._num_dims    
+        layer_index, header_._batch_size, header_._sequence_length, header_._num_dims    
     );
 
     // checkpoint
@@ -414,10 +416,10 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
     
     feed_forward(
         dvc_ffn_output_, dvc_ffn_hidden_, 
-        cublas_handle,
+        handle_,
         dvc_ffn_input_, dvc_ffn_weights_, dvc_ffn_biases_,
-        header_._current_layer_index, header_._batch_size, header_._sequence_length, header_._num_dims,
-        ff_multiplier 
+        layer_index, header_._batch_size, header_._sequence_length, header_._num_dims,
+        ff_mult_ 
     );
 
     // residual add
@@ -425,6 +427,24 @@ void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_
         dvc_input_embed_, dvc_input_embed_, dvc_ffn_output_,
         header_._batch_size, header_._sequence_length, header_._num_dims
     );
+}
+
+void transformer_forward(Transformer *transformer, const bool bias, const float dropout, const bool verbose) {
+    if (!transformer) {
+        if (verbose) KERAVNOS_PRINT_ERROR("transformer is null.");
+        return;  
+    }
+
+    const TransformerHeader &header_ = transformer_get_header(transformer, verbose);
+
+    for (std::size_t index_ = 0; index_ < header_._num_layers; ++index_) {
+        if (verbose) KERAVNOS_PRINT("processing layer ", index_, "...");
+        
+        transformer_layer_forward(transformer, index_, bias, dropout, verbose);
+        if (verbose) KERAVNOS_PRINT("finished processing layer ", index_, ".");
+    }
+
+    if (verbose) KERAVNOS_PRINT("finished processing all ", header_._num_layers, " layers.");
 }
 
 TransformerHeader transformer_get_header(Transformer *transformer, const bool verbose) {

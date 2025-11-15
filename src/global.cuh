@@ -83,7 +83,6 @@ typedef struct TransformerHeader {
 	std::size_t			_num_layers;
 	std::size_t			_ff_multiplier;
 	std::size_t   		_type_bytes;
-	std::size_t			_current_layer_index;
 
 	std::size_t   		_offset_token_embed;
 	std::size_t   		_offset_pos_embed;
@@ -141,6 +140,7 @@ typedef struct TransformerHeader {
 
 typedef struct Transformer {
 	__half				*_dvc_base;
+	cublasHandle_t		_cublas_handle;
 } Transformer;
 
 

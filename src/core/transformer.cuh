@@ -27,7 +27,8 @@ void transformer_edit_output_projection(Transformer *transformer, const std::uin
 void transformer_edit_qkv_projection_bias(Transformer *transformer, const std::uint16_t *dvc_tensor, const bool verbose);
 void transformer_edit_output_projection_bias(Transformer *transformer, const std::uint16_t *dvc_tensor, const bool verbose);
 
-void transformer_layer_forward(Transformer *transformer, cublasHandle_t &cublas_handle, const bool bias, const float dropout, const bool verbose);
+void transformer_layer_forward(Transformer *transformer, const int layer_index, const bool bias, const float dropout, const bool verbose);
+void transformer_forward(Transformer *transformer, const bool bias, const float dropout, const bool verbose);
 
 TransformerHeader transformer_get_header(Transformer *transformer, const bool verbose);
 py::array_t<int> transformer_get_token_ids(Transformer *transformer, const bool verbose);
